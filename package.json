@@ -1,5 +1,35 @@
 {
-  "name": "mcp-telegram-bridge",
+  "name": "@agent405728bot/mcp-telegram-userbot",
   "version": "1.0.0",
-  "type": "module"
+  "description": "MCP server for Telegram user account via streamable HTTP. Connect Claude and other LLMs to your Telegram.",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "mcp-telegram-userbot": "server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "telegram",
+    "model-context-protocol",
+    "userbot",
+    "mtproto"
+  ],
+  "author": "agent405728bot",
+  "license": "MIT",
+  "dependencies": {
+    "@overpod/mcp-telegram": "^1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agent405728bot/mcp-telegram-userbot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agent405728bot/mcp-telegram-userbot/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
