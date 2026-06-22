@@ -1,16 +1,252 @@
 #!/usr/bin/env node
-// MCP Telegram userbot — HTTP bridge for Telegram user account access
-// Usage: mcp-telegram-userbot
-// 
-// Environment variables:
-//   TELEGRAM_API_ID (required)         - Your Telegram API ID from my.telegram.org
-//   TELEGRAM_API_HASH (required)       - Your Telegram API hash from my.telegram.org
-//   TELEGRAM_SESSION_PATH (optional)   - Path to save session file (default: ~/.mcp-telegram-session)
-//   PORT (optional)                    - HTTP port (default: 3000)
-//
-// Endpoints:
-//   GET  /health  - Check server status
-//   GET  /login   - Start login (follow logs for QR code)
-//   POST /mcp     - MCP JSON-RPC (set Mcp-Session-Id header for session tracking)
+import { spawn } from 'node:child_process';
+import http from 'node:http';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
-import { spawn } from 'node:child_process';\nimport http from 'node:http';\nimport { randomUUID } from 'node:crypto';\nimport fs from 'node:fs';\nimport path from 'node:path';\nimport os from 'node:os';\n\nconst PORT = process.env.PORT || 3000;\nconst DEFAULT_SESSION = path.join(os.homedir(), '.mcp-telegram-session');\nconst SESSION_PATH = process.env.TELEGRAM_SESSION_PATH || DEFAULT_SESSION;\n\nif (!process.env.TELEGRAM_API_ID || !process.env.TELEGRAM_API_HASH) {\n  console.error('ERROR: Missing required environment variables:');\n  console.error('  TELEGRAM_API_ID - Get from https://my.telegram.org/apps');\n  console.error('  TELEGRAM_API_HASH - Get from https://my.telegram.org/apps');\n  process.exit(1);\n}\n\nconst sessions = new Map();\n\n// Ensure session directory exists\nconst sessionDir = path.dirname(SESSION_PATH);\nif (!fs.existsSync(sessionDir)) {\n  fs.mkdirSync(sessionDir, { recursive: true });\n}\n\nfunction spawnTelegram() {\n  const child = spawn('node', [\n    require.resolve('@overpod/mcp-telegram/dist/index.js')\n  ], {\n    env: {\n      ...process.env,\n      MCP_TELEGRAM_DAEMON: '0',\n    },\n    stdio: ['pipe', 'pipe', 'pipe'],\n  });\n\n  const pending = new Map();\n  let buf = '';\n  let qrCode = null;\n\n  child.stdout.on('data', d => {\n    buf += d.toString();\n    const lines = buf.split('\\n');\n    buf = lines.pop();\n    for (const line of lines) {\n      if (!line.trim()) continue;\n      try {\n        const msg = JSON.parse(line);\n        const id = msg.id;\n        if (id !== undefined && pending.has(id)) {\n          const { resolve } = pending.get(id);\n          pending.delete(id);\n          resolve(msg);\n        }\n      } catch {}\n    }\n  });\n\n  child.stderr.on('data', d => {\n    const text = d.toString();\n    process.stderr.write('[tg] ' + text);\n    // Check if QR code is being output\n    if (text.includes('Scan the QR code') || text.includes('▄▄▄')) {\n      qrCode = text;\n    }\n  });\n\n  child.on('exit', code => console.error('[tg] exited with code', code));\n\n  return {\n    child,\n    pending,\n    qrCode: () => qrCode,\n    send(msg) {\n      return new Promise((resolve, reject) => {\n        const id = msg.id ?? randomUUID();\n        msg.id = id;\n        pending.set(id, { resolve, reject });\n        child.stdin.write(JSON.stringify(msg) + '\\n');\n        setTimeout(() => {\n          if (pending.has(id)) {\n            pending.delete(id);\n            reject(new Error('mcp-telegram timeout'));\n          }\n        }, 120000); // 2 minute timeout for login\n      });\n    },\n    notify(msg) {\n      child.stdin.write(JSON.stringify(msg) + '\\n');\n    }\n  };\n}\n\nconst server = http.createServer(async (req, res) => {\n  res.setHeader('Access-Control-Allow-Origin', '*');\n  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id');\n\n  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }\n\n  // Health check\n  if (req.method === 'GET' && req.url === '/health') {\n    res.writeHead(200, { 'Content-Type': 'application/json' });\n    res.end(JSON.stringify({ \n      status: 'ok', \n      sessions: sessions.size,\n      sessionPath: SESSION_PATH,\n      hasSession: fs.existsSync(SESSION_PATH),\n      port: PORT\n    }));\n    return;\n  }\n\n  // Login endpoint - spawns mcp-telegram login process\n  if (req.method === 'GET' && req.url === '/login') {\n    const loginSession = spawnTelegram();\n    \n    // Send login command\n    loginSession.send({\n      jsonrpc: '2.0',\n      id: 'login-init',\n      method: 'initialize',\n      params: {\n        protocolVersion: '2024-11-05',\n        capabilities: {},\n        clientInfo: { name: 'login-client', version: '1' }\n      }\n    }).catch(e => console.error('Login init error:', e));\n\n    // Capture QR output for ~30 seconds\n    const qrOutput = [];\n    const captureInterval = setInterval(() => {\n      const qr = loginSession.qrCode();\n      if (qr && !qrOutput.includes(qr)) {\n        qrOutput.push(qr);\n        console.log('[login] QR captured');\n      }\n    }, 500);\n\n    setTimeout(() => {\n      clearInterval(captureInterval);\n      loginSession.child.kill();\n      \n      res.writeHead(200, { 'Content-Type': 'application/json' });\n      res.end(JSON.stringify({\n        status: 'qr_ready',\n        message: 'Scan the QR code in Telegram: Settings → Devices → Link Desktop Device',\n        qr: qrOutput.join('\\n'),\n        sessionPath: SESSION_PATH,\n        notes: [\n          '📱 Check the terminal output above for the QR code',\n          '👀 Scan it in the Telegram app: Settings → Devices → Link Desktop Device',\n          '⏱️  You have ~30 seconds to scan',\n          '💾 The session will be saved to: ' + SESSION_PATH,\n          '🔄 Once logged in, the server will automatically use the saved session'\n        ]\n      }));\n    }, 35000);\n\n    return;\n  }\n\n  // MCP endpoint\n  if (req.url !== '/mcp') { res.writeHead(404); res.end('Not found'); return; }\n\n  let body = '';\n  req.on('data', c => body += c);\n  await new Promise(r => req.on('end', r));\n\n  let msg;\n  try { msg = JSON.parse(body); } catch {\n    res.writeHead(400); res.end('Invalid JSON'); return;\n  }\n\n  let sessionId = req.headers['mcp-session-id'];\n\n  // New session on initialize or missing session ID\n  if (msg.method === 'initialize' || !sessionId) {\n    sessionId = randomUUID();\n    const session = spawnTelegram();\n    sessions.set(sessionId, session);\n    console.log('[bridge] new session', sessionId, '| total:', sessions.size);\n\n    session.child.on('exit', () => {\n      sessions.delete(sessionId);\n      console.log('[bridge] session ended', sessionId);\n    });\n\n    try {\n      const result = await session.send(msg);\n      res.writeHead(200, {\n        'Content-Type': 'application/json',\n        'Mcp-Session-Id': sessionId,\n      });\n      res.end(JSON.stringify(result));\n    } catch (e) {\n      sessions.delete(sessionId);\n      res.writeHead(500); res.end(e.message);\n    }\n    return;\n  }\n\n  const session = sessions.get(sessionId);\n  if (!session) { res.writeHead(404); res.end('Session not found'); return; }\n\n  // Notifications (no id) — fire and forget\n  if (msg.id === undefined) {\n    session.notify(msg);\n    res.writeHead(202); res.end();\n    return;\n  }\n\n  try {\n    const result = await session.send(msg);\n    res.writeHead(200, { 'Content-Type': 'application/json', 'Mcp-Session-Id': sessionId });\n    res.end(JSON.stringify(result));\n  } catch (e) {\n    res.writeHead(500); res.end(e.message);\n  }\n});\n\nserver.listen(PORT, '0.0.0.0', () => {\n  console.log(`\\n✨ MCP Telegram Userbot HTTP Bridge`);\n  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);\n  console.log(`📍 MCP endpoint:    http://localhost:${PORT}/mcp`);\n  console.log(`🏥 Health check:    http://localhost:${PORT}/health`);\n  console.log(`🔐 Login endpoint:  http://localhost:${PORT}/login`);\n  console.log(`💾 Session file:    ${SESSION_PATH}`);\n  console.log(`\\n1️⃣  First time? Run: curl http://localhost:${PORT}/login`);\n  console.log(`2️⃣  Check terminal for QR code`);\n  console.log(`3️⃣  Scan in Telegram: Settings → Devices → Link Desktop Device`);\n  console.log(`\\n`);\n});\n\nprocess.on('SIGINT', () => {\n  console.log('\\n👋 Shutting down...');\n  for (const [id, session] of sessions) {\n    session.child.kill();\n  }\n  server.close();\n  process.exit(0);\n});\n
+const PORT = process.env.PORT || 3000;
+const SESSION_PATH = process.env.TELEGRAM_SESSION_PATH || path.join(os.homedir(), '.mcp-telegram-session');
+
+if (!process.env.TELEGRAM_API_ID || !process.env.TELEGRAM_API_HASH) {
+  console.error('ERROR: Missing required environment variables:');
+  console.error('  TELEGRAM_API_ID - Get from https://my.telegram.org/apps');
+  console.error('  TELEGRAM_API_HASH - Get from https://my.telegram.org/apps');
+  process.exit(1);
+}
+
+const sessions = new Map();
+
+// Ensure session directory exists
+const sessionDir = path.dirname(SESSION_PATH);
+if (!fs.existsSync(sessionDir)) {
+  fs.mkdirSync(sessionDir, { recursive: true });
+}
+
+function spawnTelegram() {
+  const child = spawn('node', [require.resolve('@overpod/mcp-telegram/dist/index.js')], {
+    env: { ...process.env, MCP_TELEGRAM_DAEMON: '0' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const pending = new Map();
+  let buf = '';
+  let qrCode = null;
+
+  child.stdout.on('data', d => {
+    buf += d.toString();
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        const id = msg.id;
+        if (id !== undefined && pending.has(id)) {
+          const { resolve } = pending.get(id);
+          pending.delete(id);
+          resolve(msg);
+        }
+      } catch {}
+    }
+  });
+
+  child.stderr.on('data', d => {
+    const text = d.toString();
+    process.stderr.write('[tg] ' + text);
+    if (text.includes('Scan the QR code') || text.includes('▄▄▄')) {
+      qrCode = text;
+    }
+  });
+
+  child.on('exit', code => console.error('[tg] exited with code', code));
+
+  return {
+    child,
+    pending,
+    qrCode: () => qrCode,
+    send(msg) {
+      return new Promise((resolve, reject) => {
+        const id = msg.id ?? randomUUID();
+        msg.id = id;
+        pending.set(id, { resolve, reject });
+        child.stdin.write(JSON.stringify(msg) + '\n');
+        setTimeout(() => {
+          if (pending.has(id)) {
+            pending.delete(id);
+            reject(new Error('mcp-telegram timeout'));
+          }
+        }, 120000);
+      });
+    },
+    notify(msg) {
+      child.stdin.write(JSON.stringify(msg) + '\n');
+    },
+  };
+}
+
+const server = http.createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Health check
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      sessions: sessions.size,
+      sessionPath: SESSION_PATH,
+      hasSession: fs.existsSync(SESSION_PATH),
+      port: PORT,
+    }));
+    return;
+  }
+
+  // Login endpoint
+  if (req.method === 'GET' && req.url === '/login') {
+    const loginSession = spawnTelegram();
+
+    loginSession.send({
+      jsonrpc: '2.0',
+      id: 'login-init',
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'login-client', version: '1' },
+      },
+    }).catch(e => console.error('Login init error:', e));
+
+    const qrOutput = [];
+    const captureInterval = setInterval(() => {
+      const qr = loginSession.qrCode();
+      if (qr && !qrOutput.includes(qr)) {
+        qrOutput.push(qr);
+        console.log('[login] QR captured');
+      }
+    }, 500);
+
+    setTimeout(() => {
+      clearInterval(captureInterval);
+      loginSession.child.kill();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: 'qr_ready',
+        message: 'Scan the QR code in Telegram: Settings → Devices → Link Desktop Device',
+        qr: qrOutput.join('\n'),
+        sessionPath: SESSION_PATH,
+        notes: [
+          '📱 Check the terminal output above for the QR code',
+          '👀 Scan it in the Telegram app: Settings → Devices → Link Desktop Device',
+          '⏱️  You have ~30 seconds to scan',
+          '💾 The session will be saved to: ' + SESSION_PATH,
+          '🔄 Once logged in, the server will automatically use the saved session',
+        ],
+      }));
+    }, 35000);
+    return;
+  }
+
+  // MCP endpoint
+  if (req.url !== '/mcp') {
+    res.writeHead(404);
+    res.end('Not found');
+    return;
+  }
+
+  let body = '';
+  req.on('data', c => (body += c));
+  await new Promise(r => req.on('end', r));
+
+  let msg;
+  try {
+    msg = JSON.parse(body);
+  } catch {
+    res.writeHead(400);
+    res.end('Invalid JSON');
+    return;
+  }
+
+  let sessionId = req.headers['mcp-session-id'];
+
+  // New session on initialize or missing session ID
+  if (msg.method === 'initialize' || !sessionId) {
+    sessionId = randomUUID();
+    const session = spawnTelegram();
+    sessions.set(sessionId, session);
+    console.log('[bridge] new session', sessionId, '| total:', sessions.size);
+
+    session.child.on('exit', () => {
+      sessions.delete(sessionId);
+      console.log('[bridge] session ended', sessionId);
+    });
+
+    try {
+      const result = await session.send(msg);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Mcp-Session-Id': sessionId,
+      });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      sessions.delete(sessionId);
+      res.writeHead(500);
+      res.end(e.message);
+    }
+    return;
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    res.writeHead(404);
+    res.end('Session not found');
+    return;
+  }
+
+  // Notifications (no id) — fire and forget
+  if (msg.id === undefined) {
+    session.notify(msg);
+    res.writeHead(202);
+    res.end();
+    return;
+  }
+
+  try {
+    const result = await session.send(msg);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Mcp-Session-Id': sessionId,
+    });
+    res.end(JSON.stringify(result));
+  } catch (e) {
+    res.writeHead(500);
+    res.end(e.message);
+  }
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n✨ MCP Telegram Userbot`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`📍 MCP:    http://localhost:${PORT}/mcp`);
+  console.log(`🏥 Health: http://localhost:${PORT}/health`);
+  console.log(`🔐 Login:  http://localhost:${PORT}/login`);
+  console.log(`\n1️⃣  curl http://localhost:${PORT}/login`);
+  console.log(`2️⃣  Scan QR in terminal`);
+  console.log(`3️⃣  Settings → Devices → Link Desktop Device\n`);
+});
+
+process.on('SIGINT', () => {
+  console.log('\n👋 Shutting down...');
+  for (const [, session] of sessions) {
+    session.child.kill();
+  }
+  server.close();
+  process.exit(0);
+});
