@@ -29,16 +29,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Read base version
+      - name: Read package version
         id: version
         run: |
-          BASE_VERSION=$(node -p "require('./package.json').version")
-          echo "base=${BASE_VERSION}" >> $GITHUB_OUTPUT
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          echo "package=${PKG_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Determine next build tag number
         id: build
         run: |
-          BASE_VERSION='${{ steps.version.outputs.base }}'
+          BASE_VERSION='${{ steps.version.outputs.package }}'
           LAST_TAG=$(git tag -l "v${BASE_VERSION}-*" | sed -E 's/^v.*-([0-9]+)$/\1/' | sort -n | tail -n 1)
           if [ -z "$LAST_TAG" ]; then
             NEXT=1
@@ -49,12 +49,16 @@ jobs:
           echo "next=${NEXT}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Skip if already published
+      - name: Check whether version already exists
         id: publish_check
         continue-on-error: true
         run: |
           npm view @agent405728bot/mcp-telegram-userbot@${{ steps.build.outputs.version }} version >/dev/null 2>&1
-          echo "exists=true" >> $GITHUB_OUTPUT
+          if [ $? -eq 0 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Publish to GitHub Packages
         if: steps.publish_check.outputs.exists != 'true'
@@ -75,7 +79,7 @@ jobs:
         if: always()
         run: |
           echo "### 📦 Auto-Publish Report" >> $GITHUB_STEP_SUMMARY
-          echo "**Base Version:** ${{ steps.version.outputs.base }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package Version:** ${{ steps.version.outputs.package }}" >> $GITHUB_STEP_SUMMARY
           echo "**Next Build Number:** ${{ steps.build.outputs.next }}" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Published:** ${{ steps.publish_check.outputs.exists != 'true' }}" >> $GITHUB_STEP_SUMMARY
