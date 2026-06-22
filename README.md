@@ -1,131 +1,113 @@
 # mcp-telegram-userbot
 
-A Docker image that wraps [@overpod/mcp-telegram](https://www.npmjs.com/package/@overpod/mcp-telegram) with an HTTP bridge, making it usable as a **Streamable HTTP MCP server** instead of stdio-only.
+A **standalone npm package** that runs a Telegram user account as an MCP server accessible via HTTP.
 
-## How it works
-
-- Runs an HTTP server on port `3000`
-- Each MCP session spawns a `mcp-telegram` subprocess connected to Telegram via your session file
-- Routes MCP JSON-RPC over HTTP (`POST /mcp`) with session tracking via `Mcp-Session-Id` header
-- **Built-in login endpoint** (`GET /login`) — scan QR code to authenticate
-- Health check at `GET /health`
-
-## Docker image
-
-Pre-built image available at:
-```
-ghcr.io/agent405728bot/mcp-telegram-userbot:latest
-```
-
-## Quick Start (No Pre-Existing Session)
+**No Docker required.** Just:
 
 ```bash
-# Run the container
-docker run -d \
-  --name mcp-telegram \
-  --restart=always \
-  -p 3000:3000 \
-  -e TELEGRAM_API_ID=34259509 \
-  -e TELEGRAM_API_HASH=8aaf4251d4f520d90037a32bf6a524ea \
-  -v /tmp/tg-session:/data \
-  ghcr.io/agent405728bot/mcp-telegram-userbot:latest
+npx @agent405728bot/mcp-telegram-userbot
+```
 
-# Check logs to see the login URL
-docker logs mcp-telegram -f
+## Quick Start
 
-# In another terminal, login via HTTP
+### 1. Get Telegram API Credentials
+
+- Go to https://my.telegram.org/apps
+- Log in with your phone number
+- Create an app (or use existing)
+- Copy the **API ID** and **API hash**
+
+### 2. Start the Server
+
+```bash
+export TELEGRAM_API_ID=your_api_id
+export TELEGRAM_API_HASH=your_api_hash
+npx @agent405728bot/mcp-telegram-userbot
+```
+
+Server starts on `http://localhost:3000`
+
+### 3. First Time: Log In
+
+```bash
 curl http://localhost:3000/login
-
-# Follow the instructions:
-# 1. Check logs for QR code
-# 2. Scan in Telegram app: Settings → Devices → Link Desktop Device
-# 3. Session will be saved to /tmp/tg-session
-# 4. Restart container: docker restart mcp-telegram
 ```
 
-## Usage with Existing Session
+- **Check the terminal** for a QR code
+- Scan it in **Telegram app**: Settings → Devices → Link Desktop Device
+- Session saves to `~/.mcp-telegram-session`
+- Server automatically uses the saved session on restart
 
-If you already have a Telegram session file:
+## Add to Moltis
 
-```bash
-docker run -d \
-  --name mcp-telegram \
-  --restart=always \
-  -p 3000:3000 \
-  -e TELEGRAM_API_ID=34259509 \
-  -e TELEGRAM_API_HASH=8aaf4251d4f520d90037a32bf6a524ea \
-  -v /path/to/session.session:/data/session.session:ro \
-  ghcr.io/agent405728bot/mcp-telegram-userbot:latest
+Once logged in, add to your `moltis.toml`:
+
+```toml
+[mcp.servers.telegram-userbot]
+transport = "streamable-http"
+url = "http://localhost:3000/mcp"
 ```
 
-## API Endpoints
+Then restart Moltis. Your agent now has Telegram tools.
 
-### Health Check
-```bash
-GET /health
-```
-Response: `{"status":"ok","sessions":0,"sessionPath":"/data/session","hasSession":true}`
+## Endpoints
 
-### Login
-```bash
-GET /login
-```
-Returns QR code and instructions. Keep checking logs while scanning:
-```bash
-docker logs mcp-telegram -f
-```
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | Check status & session state |
+| `GET` | `/login` | Start login (scan QR code) |
+| `POST` | `/mcp` | MCP JSON-RPC (set `Mcp-Session-Id` header) |
 
-### MCP Server
-```
-POST /mcp
-Header: Mcp-Session-Id: <session-id>
-Body: JSON-RPC message
-```
+## Environment Variables
 
-## Environment variables
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `TELEGRAM_API_ID` | Yes | From my.telegram.org |
+| `TELEGRAM_API_HASH` | Yes | From my.telegram.org |
+| `TELEGRAM_SESSION_PATH` | No | Session file path (default: `~/.mcp-telegram-session`) |
+| `PORT` | No | HTTP port (default: `3000`) |
 
-| Variable | Description | Default |
-|---|---|---|
-| `TELEGRAM_API_ID` | Your Telegram API ID from my.telegram.org | Required |
-| `TELEGRAM_API_HASH` | Your Telegram API hash | Required |
-| `TELEGRAM_SESSION_PATH` | Session file path inside container | `/data/session` |
-| `PORT` | HTTP port | `3000` |
+## How It Works
 
-## MCP Server config (moltis / mcp-servers.json)
+1. **npx runs** the CLI entry point
+2. **HTTP server** spawns on port 3000
+3. **@overpod/mcp-telegram** subprocess runs internally
+4. **Session management** via file (`~/.mcp-telegram-session`)
+5. **MCP clients** (like Moltis) connect via HTTP
 
-```json
-{
-  "servers": {
-    "telegram-userbot": {
-      "transport": "streamable-http",
-      "url": "http://localhost:3000/mcp",
-      "display_name": "Telegram Userbot"
-    }
-  }
-}
-```
+## Differences from Docker
 
-Then restart Moltis to load the server.
+| Aspect | Docker | NPX |
+|--------|--------|-----|
+| Setup | `docker run` | `npx` |
+| Process | Containerized | Direct process |
+| Session | `/data/session` | `~/.mcp-telegram-session` |
+| Port binding | Manual `-p` | Auto on 3000 |
+| Node.js | In image | On host |
 
 ## Troubleshooting
 
-### I need to login
+### Can't scan QR code
 
-1. Run `curl http://localhost:3000/login`
-2. Check container logs: `docker logs mcp-telegram -f`
-3. Look for the QR code in the logs
-4. Scan it in Telegram: **Settings → Devices → Link Desktop Device**
-5. The session saves to `/data/session` (or your mapped volume)
-6. Restart: `docker restart mcp-telegram`
+- Run `curl http://localhost:3000/login` in a terminal that can display logs
+- Check the previous 30 seconds of output
+- Terminal must support Unicode for QR display
 
-### Session file not being created
+### "Session not found"
 
-- Check volume mount: `docker exec mcp-telegram ls -la /data/`
-- Verify API credentials are correct
-- Check logs: `docker logs mcp-telegram`
+- First login required: `curl http://localhost:3000/login`
+- Check `~/.mcp-telegram-session` exists
 
-### Connection refused
+### Port 3000 already in use
 
-- Is the container running? `docker ps | grep mcp-telegram`
-- Is port 3000 in use? `netstat -tlnp | grep 3000`
-- Try a different port: `-p 3001:3000`
+```bash
+PORT=3001 npx @agent405728bot/mcp-telegram-userbot
+```
+
+## License
+
+MIT
+
+## Credits
+
+Built on [@overpod/mcp-telegram](https://www.npmjs.com/package/@overpod/mcp-telegram)
