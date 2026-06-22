@@ -1,131 +1,109 @@
 # mcp-telegram-userbot
 
-A Docker image that wraps [@overpod/mcp-telegram](https://www.npmjs.com/package/@overpod/mcp-telegram) with an HTTP bridge, making it usable as a **Streamable HTTP MCP server** instead of stdio-only.
+MCP server for Telegram user account access via HTTP with interactive login tools.
 
-## How it works
+## Quick Start
 
-- Runs an HTTP server on port `3000`
-- Each MCP session spawns a `mcp-telegram` subprocess connected to Telegram via your session file
-- Routes MCP JSON-RPC over HTTP (`POST /mcp`) with session tracking via `Mcp-Session-Id` header
-- **Built-in login endpoint** (`GET /login`) — scan QR code to authenticate
-- Health check at `GET /health`
+### 1. Get Telegram API Credentials
+Go to https://my.telegram.org/apps and grab **API ID** and **API hash**.
 
-## Docker image
-
-Pre-built image available at:
-```
-ghcr.io/agent405728bot/mcp-telegram-userbot:latest
-```
-
-## Quick Start (No Pre-Existing Session)
-
+### 2. Install & Run
 ```bash
-# Run the container
-docker run -d \
-  --name mcp-telegram \
-  --restart=always \
-  -p 3000:3000 \
-  -e TELEGRAM_API_ID=34259509 \
-  -e TELEGRAM_API_HASH=8aaf4251d4f520d90037a32bf6a524ea \
-  -v /tmp/tg-session:/data \
-  ghcr.io/agent405728bot/mcp-telegram-userbot:latest
-
-# Check logs to see the login URL
-docker logs mcp-telegram -f
-
-# In another terminal, login via HTTP
-curl http://localhost:3000/login
-
-# Follow the instructions:
-# 1. Check logs for QR code
-# 2. Scan in Telegram app: Settings → Devices → Link Desktop Device
-# 3. Session will be saved to /tmp/tg-session
-# 4. Restart container: docker restart mcp-telegram
+export TELEGRAM_API_ID=your_id
+export TELEGRAM_API_HASH=your_hash
+npx @agent405728bot/mcp-telegram-userbot
 ```
 
-## Usage with Existing Session
+Server runs on `http://localhost:3000`
 
-If you already have a Telegram session file:
+## MCP Tools
 
+The server exposes three MCP tools for interactive login:
+
+### `telegram_login_start`
+Start a new Telegram login session and begin QR code generation.
+
+**Usage:**
+```
+Call with no arguments to initiate a login session.
+```
+
+**Returns:**
+- `login_id`: Use this ID with `telegram_login_status` to check progress
+
+### `telegram_login_status`
+Check the status of a login session and retrieve the QR code.
+
+**Parameters:**
+- `login_id` (required): The login session ID from `telegram_login_start`
+
+**Returns:**
+- Login session status (Active)
+- Session duration
+- QR code URL (if available)
+- QR code as ASCII art (if available)
+- Scan instructions
+
+### `telegram_list_sessions`
+List all active Telegram sessions and login attempts.
+
+**Usage:**
+```
+Call with no arguments to list sessions.
+```
+
+**Returns:**
+- Count of active MCP sessions
+- Count of active login sessions
+- Details of each login session
+
+## Login Flow
+
+1. **Start login:** Call `telegram_login_start`
+2. **Poll for QR:** Repeatedly call `telegram_login_status` with the login ID
+3. **Scan QR:** Open Telegram → Settings → Devices → Link Desktop Device
+4. **Scan the QR code** from the response
+5. **Session established:** The Telegram session will be saved
+
+## Add to Moltis
+```toml
+[mcp.servers.telegram-userbot]
+command = "npx"
+args = ["-y", "@agent405728bot/mcp-telegram-userbot"]
+env = { TELEGRAM_API_ID = "...", TELEGRAM_API_HASH = "..." }
+```
+
+## Authentication Setup
 ```bash
-docker run -d \
-  --name mcp-telegram \
-  --restart=always \
-  -p 3000:3000 \
-  -e TELEGRAM_API_ID=34259509 \
-  -e TELEGRAM_API_HASH=8aaf4251d4f520d90037a32bf6a524ea \
-  -v /path/to/session.session:/data/session.session:ro \
-  ghcr.io/agent405728bot/mcp-telegram-userbot:latest
+npm login --registry https://npm.pkg.github.com
+# or add to ~/.npmrc:
+# @agent405728bot:registry=https://npm.pkg.github.com
+# //npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
 ```
 
-## API Endpoints
+## Endpoints
+- `GET /health` - Server status and session counts
+- `POST /mcp` - MCP JSON-RPC endpoint with tool support
 
-### Health Check
+## Environment Variables
+- `TELEGRAM_API_ID` - Required
+- `TELEGRAM_API_HASH` - Required
+- `TELEGRAM_SESSION_PATH` - Session file path (default: `~/.mcp-telegram-session`)
+- `PORT` - HTTP port (default: `3000`)
+
+## Architecture
+
+- **MCP Tools**: Interactive login with QR code capture in chat
+- **Session Management**: Separate tracking for login vs. active sessions
+- **Auto-cleanup**: Login sessions auto-expire after 5 minutes
+- **QR Capture**: Supports both URL-based and ASCII art QR codes
+
+## Publishing
+Automatic via GitHub Actions on every commit to main:
 ```bash
-GET /health
-```
-Response: `{"status":"ok","sessions":0,"sessionPath":"/data/session","hasSession":true}`
-
-### Login
-```bash
-GET /login
-```
-Returns QR code and instructions. Keep checking logs while scanning:
-```bash
-docker logs mcp-telegram -f
+git push origin main
+# Workflow will auto-publish with version-commit_hash
 ```
 
-### MCP Server
-```
-POST /mcp
-Header: Mcp-Session-Id: <session-id>
-Body: JSON-RPC message
-```
-
-## Environment variables
-
-| Variable | Description | Default |
-|---|---|---|
-| `TELEGRAM_API_ID` | Your Telegram API ID from my.telegram.org | Required |
-| `TELEGRAM_API_HASH` | Your Telegram API hash | Required |
-| `TELEGRAM_SESSION_PATH` | Session file path inside container | `/data/session` |
-| `PORT` | HTTP port | `3000` |
-
-## MCP Server config (moltis / mcp-servers.json)
-
-```json
-{
-  "servers": {
-    "telegram-userbot": {
-      "transport": "streamable-http",
-      "url": "http://localhost:3000/mcp",
-      "display_name": "Telegram Userbot"
-    }
-  }
-}
-```
-
-Then restart Moltis to load the server.
-
-## Troubleshooting
-
-### I need to login
-
-1. Run `curl http://localhost:3000/login`
-2. Check container logs: `docker logs mcp-telegram -f`
-3. Look for the QR code in the logs
-4. Scan it in Telegram: **Settings → Devices → Link Desktop Device**
-5. The session saves to `/data/session` (or your mapped volume)
-6. Restart: `docker restart mcp-telegram`
-
-### Session file not being created
-
-- Check volume mount: `docker exec mcp-telegram ls -la /data/`
-- Verify API credentials are correct
-- Check logs: `docker logs mcp-telegram`
-
-### Connection refused
-
-- Is the container running? `docker ps | grep mcp-telegram`
-- Is port 3000 in use? `netstat -tlnp | grep 3000`
-- Try a different port: `-p 3001:3000`
+## License
+MIT
