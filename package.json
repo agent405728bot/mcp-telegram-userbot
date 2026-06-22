@@ -30,6 +30,6 @@
     "url": "https://github.com/agent405728bot/mcp-telegram-userbot/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   }
 }
