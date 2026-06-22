@@ -3,9 +3,18 @@
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const PORT = process.env.PORT || 3000;
+const SESSION_PATH = process.env.TELEGRAM_SESSION_PATH || '/data/session';
 const sessions = new Map();
+
+// Ensure session directory exists
+const sessionDir = path.dirname(SESSION_PATH);
+if (!fs.existsSync(sessionDir)) {
+  fs.mkdirSync(sessionDir, { recursive: true });
+}
 
 function spawnTelegram() {
   const child = spawn('node', [
@@ -15,8 +24,7 @@ function spawnTelegram() {
       PATH: process.env.PATH,
       TELEGRAM_API_ID: process.env.TELEGRAM_API_ID,
       TELEGRAM_API_HASH: process.env.TELEGRAM_API_HASH,
-      TELEGRAM_SESSION_PATH: process.env.TELEGRAM_SESSION_PATH || '/data/session',
-      // Keep daemon mode disabled inside container — each session is standalone
+      TELEGRAM_SESSION_PATH: SESSION_PATH,
       MCP_TELEGRAM_DAEMON: '0',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -24,6 +32,7 @@ function spawnTelegram() {
 
   const pending = new Map();
   let buf = '';
+  let qrCode = null;
 
   child.stdout.on('data', d => {
     buf += d.toString();
@@ -43,12 +52,21 @@ function spawnTelegram() {
     }
   });
 
-  child.stderr.on('data', d => process.stderr.write('[tg] ' + d));
+  child.stderr.on('data', d => {
+    const text = d.toString();
+    process.stderr.write('[tg] ' + text);
+    // Check if QR code is being output
+    if (text.includes('Scan the QR code') || text.includes('▄▄▄')) {
+      qrCode = text;
+    }
+  });
+
   child.on('exit', code => console.error('[tg] exited with code', code));
 
   return {
     child,
     pending,
+    qrCode: () => qrCode,
     send(msg) {
       return new Promise((resolve, reject) => {
         const id = msg.id ?? randomUUID();
@@ -60,7 +78,7 @@ function spawnTelegram() {
             pending.delete(id);
             reject(new Error('mcp-telegram timeout'));
           }
-        }, 60000);
+        }, 120000); // 2 minute timeout for login
       });
     },
     notify(msg) {
@@ -75,12 +93,67 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+  // Health check
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', sessions: sessions.size }));
+    res.end(JSON.stringify({ 
+      status: 'ok', 
+      sessions: sessions.size,
+      sessionPath: SESSION_PATH,
+      hasSession: fs.existsSync(SESSION_PATH)
+    }));
     return;
   }
 
+  // Login endpoint - spawns mcp-telegram login process
+  if (req.method === 'GET' && req.url === '/login') {
+    const loginSession = spawnTelegram();
+    
+    // Send login command
+    loginSession.send({
+      jsonrpc: '2.0',
+      id: 'login-init',
+      method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'login-client', version: '1' }
+      }
+    }).catch(e => console.error('Login init error:', e));
+
+    // Capture QR output for ~30 seconds
+    const qrOutput = [];
+    const captureInterval = setInterval(() => {
+      const qr = loginSession.qrCode();
+      if (qr && !qrOutput.includes(qr)) {
+        qrOutput.push(qr);
+        console.log('[login] QR captured');
+      }
+    }, 500);
+
+    setTimeout(() => {
+      clearInterval(captureInterval);
+      loginSession.child.kill();
+      
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: 'qr_ready',
+        message: 'Scan the QR code in Telegram: Settings → Devices → Link Desktop Device',
+        qr: qrOutput.join('\n'),
+        sessionPath: SESSION_PATH,
+        notes: [
+          'Check the docker logs: docker logs mcp-telegram -f',
+          'Scan the QR code in the Telegram app within 30 seconds',
+          'The session will be saved to: ' + SESSION_PATH,
+          'Once logged in, restart the container'
+        ]
+      }));
+    }, 35000);
+
+    return;
+  }
+
+  // MCP endpoint
   if (req.url !== '/mcp') { res.writeHead(404); res.end('Not found'); return; }
 
   let body = '';
@@ -142,4 +215,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[mcp-bridge] MCP HTTP bridge running on http://0.0.0.0:${PORT}/mcp`);
   console.log(`[mcp-bridge] Health check: GET http://0.0.0.0:${PORT}/health`);
+  console.log(`[mcp-bridge] Login endpoint: GET http://0.0.0.0:${PORT}/login`);
+  console.log(`[mcp-bridge] Session file: ${SESSION_PATH}`);
 });
