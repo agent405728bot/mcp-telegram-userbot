@@ -1,6 +1,6 @@
 {
   "name": "@agent405728bot/mcp-telegram-userbot",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "MCP server for Telegram user account via streamable HTTP. Connect Claude and other LLMs to your Telegram.",
   "type": "module",
   "main": "server.js",
