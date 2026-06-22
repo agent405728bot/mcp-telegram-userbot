@@ -1,0 +1,63 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Next build number
+        id: build
+        uses: onyxmueller/build-tag-number@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: https://npm.pkg.github.com
+
+      - name: Set version 1.0.{build}
+        run: |
+          VERSION="1.0.${{ steps.build.outputs.build_number }}"
+          npm pkg set "version=${VERSION}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "Publishing @agent405728bot/mcp-telegram-userbot@${VERSION}"
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Publish to GitHub Packages
+        run: npm publish --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "Release ${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published"
+            echo "- **Package:** \`@agent405728bot/mcp-telegram-userbot@${VERSION}\`"
+            echo "- **Build number:** ${{ steps.build.outputs.build_number }}"
+            echo "- **Install:** \`npx @agent405728bot/mcp-telegram-userbot@${VERSION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,7 +1,7 @@
 {
   "name": "@agent405728bot/mcp-telegram-userbot",
-  "version": "1.1.0",
-  "description": "MCP server for Telegram user account via MCP tools with interactive login and QR code scanning.",
+  "version": "1.0.0",
+  "description": "MCP server for Telegram user account access via @overpod/mcp-telegram.",
   "type": "module",
   "main": "server.js",
   "bin": {
@@ -15,9 +15,7 @@
     "telegram",
     "model-context-protocol",
     "userbot",
-    "mtproto",
-    "qr-code",
-    "login"
+    "mtproto"
   ],
   "author": "agent405728bot",
   "license": "MIT",
@@ -33,5 +31,9 @@
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
-  }
+  },
+  "files": [
+    "server.js",
+    "README.md"
+  ]
 }
