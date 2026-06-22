@@ -1,7 +1,7 @@
 {
   "name": "@agent405728bot/mcp-telegram-userbot",
-  "version": "1.0.3",
-  "description": "MCP server for Telegram user account via streamable HTTP. Connect Claude and other LLMs to your Telegram.",
+  "version": "1.1.0",
+  "description": "MCP server for Telegram user account via MCP tools with interactive login and QR code scanning.",
   "type": "module",
   "main": "server.js",
   "bin": {
@@ -15,7 +15,9 @@
     "telegram",
     "model-context-protocol",
     "userbot",
-    "mtproto"
+    "mtproto",
+    "qr-code",
+    "login"
   ],
   "author": "agent405728bot",
   "license": "MIT",
