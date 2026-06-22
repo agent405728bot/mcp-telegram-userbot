@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * Thin launcher for @overpod/mcp-telegram (stdio MCP).
+ * Launcher for bundled MCP Telegram server (stdio MCP).
  * Moltis and other MCP hosts spawn this binary and talk JSON-RPC over stdin/stdout.
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,51 +23,19 @@ function requireEnv(name) {
 requireEnv('TELEGRAM_API_ID');
 requireEnv('TELEGRAM_API_HASH');
 
-function resolveOverpodEntry() {
-  // ESM way (Node >= 14.13.1)
-  if (typeof import.meta.resolve === 'function') {
-    try {
-      const resolved = import.meta.resolve('@overpod/mcp-telegram');
-      // import.meta.resolve returns a file:// URL
-      return fileURLToPath(resolved);
-    } catch {
-      // fall through
-    }
-  }
-
-  // CommonJS fallback via createRequire
-  const require = createRequire(import.meta.url);
-  try {
-    return require.resolve('@overpod/mcp-telegram');
-  } catch {
-    // fall through
-  }
-
-  // Legacy hardcoded paths (npm v6 / flat mode / pnpm)
-  const candidates = [
-    path.join(__dirname, 'node_modules', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
-    path.join(__dirname, '..', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
-    path.join(__dirname, '..', '..', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) {
-      return p;
-    }
-  }
-
-  console.error('ERROR: Cannot find @overpod/mcp-telegram package. Is it installed?');
+const localEntry = path.join(__dirname, 'dist', 'index.js');
+if (!existsSync(localEntry)) {
+  console.error('ERROR: Cannot find dist/index.js. Did you forget to build?');
   process.exit(1);
 }
 
-const telegramEntry = resolveOverpodEntry();
-
-const child = spawn(process.execPath, [telegramEntry], {
+const child = spawn(process.execPath, [localEntry], {
   env: { ...process.env, MCP_TELEGRAM_DAEMON: '0' },
   stdio: 'inherit',
 });
 
 child.on('error', (err) => {
-  console.error('Failed to start @overpod/mcp-telegram:', err.message);
+  console.error('Failed to start MCP Telegram server:', err.message);
   process.exit(1);
 });
 
