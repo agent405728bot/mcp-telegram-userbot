@@ -99,10 +99,10 @@ npm login --registry https://npm.pkg.github.com
 - **QR Capture**: Supports both URL-based and ASCII art QR codes
 
 ## Publishing
-Automatic via GitHub Actions on git tags:
+Automatic via GitHub Actions on every commit to main:
 ```bash
-npm version patch
-git push origin main --tags
+git push origin main
+# Workflow will auto-publish with version-commit_hash
 ```
 
 ## License
