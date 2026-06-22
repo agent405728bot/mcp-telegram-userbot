@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "telegram-userbot": {
+      "command": "npx",
+      "args": ["-y", "@agent405728bot/mcp-telegram-userbot"],
+      "env": {
+        "TELEGRAM_API_ID": "your-api-id-here",
+        "TELEGRAM_API_HASH": "your-api-hash-here"
+      }
+    }
+  }
+}
