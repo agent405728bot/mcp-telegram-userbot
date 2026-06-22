@@ -39,12 +39,11 @@ jobs:
         id: build
         run: |
           BASE_VERSION='${{ steps.version.outputs.base }}'
-          LATEST_TAG=$(git tag -l "v${BASE_VERSION}-*" --sort=-v:refname | head -n 1)
-          if [ -z "$LATEST_TAG" ]; then
+          LAST_TAG=$(git tag -l "v${BASE_VERSION}-*" | sed -E 's/^v.*-([0-9]+)$/\1/' | sort -n | tail -n 1)
+          if [ -z "$LAST_TAG" ]; then
             NEXT=1
           else
-            LAST_NUM=${LATEST_TAG##*-}
-            NEXT=$((LAST_NUM + 1))
+            NEXT=$((LAST_TAG + 1))
           fi
           VERSION="${BASE_VERSION}-${NEXT}"
           echo "next=${NEXT}" >> $GITHUB_OUTPUT
