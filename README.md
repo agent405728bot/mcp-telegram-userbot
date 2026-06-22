@@ -1,8 +1,35 @@
 # mcp-telegram-userbot
 
-A **standalone npm package** that runs a Telegram user account as an MCP server accessible via HTTP.
+A **standalone npm package** for running a Telegram user account as an MCP server accessible via HTTP.
 
-**No Docker required.** Just:
+**No Docker required.** Just install and run:
+
+```bash
+npm install @agent405728bot/mcp-telegram-userbot
+mcp-telegram-userbot
+```
+
+Or with `npx`:
+
+```bash
+npx @agent405728bot/mcp-telegram-userbot
+```
+
+## Prerequisites
+
+- **Node.js** 18+
+- **npm** with access to GitHub Packages (private registry)
+- **Telegram API credentials** from https://my.telegram.org/apps
+
+## Installation
+
+### As a dependency in your project
+
+```bash
+npm install @agent405728bot/mcp-telegram-userbot
+```
+
+### Direct CLI usage
 
 ```bash
 npx @agent405728bot/mcp-telegram-userbot
@@ -38,17 +65,37 @@ curl http://localhost:3000/login
 - Session saves to `~/.mcp-telegram-session`
 - Server automatically uses the saved session on restart
 
-## Add to Moltis
+## Integration with Moltis
 
 Once logged in, add to your `moltis.toml`:
 
 ```toml
 [mcp.servers.telegram-userbot]
-transport = "streamable-http"
-url = "http://localhost:3000/mcp"
+command = "npx"
+args = ["-y", "@agent405728bot/mcp-telegram-userbot"]
+env = { TELEGRAM_API_ID = "...", TELEGRAM_API_HASH = "..." }
 ```
 
 Then restart Moltis. Your agent now has Telegram tools.
+
+## Integration with Claude Desktop
+
+Add to your Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "npx",
+      "args": ["-y", "@agent405728bot/mcp-telegram-userbot"],
+      "env": {
+        "TELEGRAM_API_ID": "your-api-id",
+        "TELEGRAM_API_HASH": "your-api-hash"
+      }
+    }
+  }
+}
+```
 
 ## Endpoints
 
@@ -66,24 +113,6 @@ Then restart Moltis. Your agent now has Telegram tools.
 | `TELEGRAM_API_HASH` | Yes | From my.telegram.org |
 | `TELEGRAM_SESSION_PATH` | No | Session file path (default: `~/.mcp-telegram-session`) |
 | `PORT` | No | HTTP port (default: `3000`) |
-
-## How It Works
-
-1. **npx runs** the CLI entry point
-2. **HTTP server** spawns on port 3000
-3. **@overpod/mcp-telegram** subprocess runs internally
-4. **Session management** via file (`~/.mcp-telegram-session`)
-5. **MCP clients** (like Moltis) connect via HTTP
-
-## Differences from Docker
-
-| Aspect | Docker | NPX |
-|--------|--------|-----|
-| Setup | `docker run` | `npx` |
-| Process | Containerized | Direct process |
-| Session | `/data/session` | `~/.mcp-telegram-session` |
-| Port binding | Manual `-p` | Auto on 3000 |
-| Node.js | In image | On host |
 
 ## Troubleshooting
 
@@ -103,6 +132,34 @@ Then restart Moltis. Your agent now has Telegram tools.
 ```bash
 PORT=3001 npx @agent405728bot/mcp-telegram-userbot
 ```
+
+### Authentication issues with GitHub Packages
+
+Ensure your `.npmrc` has GitHub Packages configured:
+
+```
+@agent405728bot:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=YOUR_GITHUB_TOKEN
+```
+
+Or set the token via environment:
+```bash
+export NPM_TOKEN=your_github_token
+npm install
+```
+
+## Publishing
+
+This package is published to GitHub Packages (private registry) automatically via GitHub Actions on git tags.
+
+To publish a new version:
+
+```bash
+npm version patch  # or minor/major
+git push origin main --tags
+```
+
+The GitHub Actions workflow will automatically publish to GitHub Packages.
 
 ## License
 
