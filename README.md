@@ -1,6 +1,6 @@
 # mcp-telegram-userbot
 
-Stdio MCP server for Telegram user account access. This package wraps [`@overpod/mcp-telegram`](https://www.npmjs.com/package/@overpod/mcp-telegram) with env validation and a stable GitHub Packages name for `npx` installs.
+Stdio MCP server for Telegram user account access. This package bundles [`@overpod/mcp-telegram`](https://www.npmjs.com/package/@overpod/mcp-telegram) with enhanced QR login (image + ASCII art + direct URL) and a stable GitHub Packages name for `npx` installs.
 
 ## Quick start
 
@@ -56,18 +56,23 @@ The process speaks MCP over **stdio** (stdin/stdout JSON-RPC). Use it with Molti
 | `TELEGRAM_API_ID` | yes | Telegram API ID |
 | `TELEGRAM_API_HASH` | yes | Telegram API hash |
 | `TELEGRAM_SESSION_PATH` | no | Session file path (default: `~/.mcp-telegram-session`) |
+| `TELEGRAM_2FA_PASSWORD` | no | Two-step verification cloud password (required if 2FA is enabled) |
+
+## QR Login
+
+The `telegram-login` tool now returns:
+- **QR image** – standard PNG QR code
+- **Login URL** – the raw `tg://login?token=...` URL for copy-paste
+- **ASCII QR** – terminal-friendly block-art QR for clients that can't render images
 
 ## Versioning
 
-Published versions use semver **`1.0.N`**, where `N` is a monotonic build number from [`onyxmueller/build-tag-number`](https://github.com/onyxmueller/build-tag-number) in CI.
-
-- Source `package.json` stays at `1.0.0` (placeholder).
-- Each push to `main` publishes `1.0.{build}` and tags `v1.0.{build}`.
+Published versions use semver. Each push to `main` publishes a new version and tags it automatically.
 
 Pin a specific build:
 
 ```bash
-npx @agent405728bot/mcp-telegram-userbot@1.0.42
+npx @agent405728bot/mcp-telegram-userbot@1.1.0
 ```
 
 ## Publishing
