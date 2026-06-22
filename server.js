@@ -5,6 +5,10 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
 const SESSION_PATH = process.env.TELEGRAM_SESSION_PATH || path.join(os.homedir(), '.mcp-telegram-session');
@@ -25,7 +29,8 @@ if (!fs.existsSync(sessionDir)) {
 }
 
 function spawnTelegram() {
-  const child = spawn('node', [require.resolve('@overpod/mcp-telegram/dist/index.js')], {
+  const telegramPath = path.join(__dirname, 'node_modules', '@overpod', 'mcp-telegram', 'dist', 'index.js');
+  const child = spawn('node', [telegramPath], {
     env: { ...process.env, MCP_TELEGRAM_DAEMON: '0' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
