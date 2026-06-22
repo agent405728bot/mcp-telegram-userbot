@@ -1,5 +1,37 @@
 {
-  "name": "mcp-telegram-bridge",
-  "version": "1.0.0",
-  "type": "module"
+  "name": "@agent405728bot/mcp-telegram-userbot",
+  "version": "1.1.1",
+  "description": "MCP server for Telegram user account via MCP tools with interactive login and QR code scanning.",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "mcp-telegram-userbot": "server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "telegram",
+    "model-context-protocol",
+    "userbot",
+    "mtproto",
+    "qr-code",
+    "login"
+  ],
+  "author": "agent405728bot",
+  "license": "MIT",
+  "dependencies": {
+    "@overpod/mcp-telegram": "^1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agent405728bot/mcp-telegram-userbot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agent405728bot/mcp-telegram-userbot/issues"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
