@@ -56,7 +56,7 @@ jobs:
         run: |
           npm view @agent405728bot/mcp-telegram-userbot@${{ steps.build.outputs.version }} version >/dev/null 2>&1
           echo "exists=true" >> $GITHUB_OUTPUT
-        
+
       - name: Publish to GitHub Packages
         if: steps.publish_check.outputs.exists != 'true'
         run: npm publish
