@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,15 +49,10 @@ function resolveOverpodEntry() {
     path.join(__dirname, 'node_modules', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
     path.join(__dirname, '..', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
     path.join(__dirname, '..', '..', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
-    path.join(__dirname, 'node_modules', '.pnpm', '@overpod+mcp-telegram@*', 'node_modules', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
   ];
   for (const p of candidates) {
-    try {
-      // eslint-disable-next-line no-unused-expressions
-      (await import('node:fs')).statSync(p);
+    if (existsSync(p)) {
       return p;
-    } catch {
-      // continue
     }
   }
 
