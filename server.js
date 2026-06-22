@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,14 +23,48 @@ function requireEnv(name) {
 requireEnv('TELEGRAM_API_ID');
 requireEnv('TELEGRAM_API_HASH');
 
-const telegramEntry = path.join(
-  __dirname,
-  'node_modules',
-  '@overpod',
-  'mcp-telegram',
-  'dist',
-  'index.js',
-);
+function resolveOverpodEntry() {
+  // ESM way (Node >= 14.13.1)
+  if (typeof import.meta.resolve === 'function') {
+    try {
+      const resolved = import.meta.resolve('@overpod/mcp-telegram');
+      // import.meta.resolve returns a file:// URL
+      return fileURLToPath(resolved);
+    } catch {
+      // fall through
+    }
+  }
+
+  // CommonJS fallback via createRequire
+  const require = createRequire(import.meta.url);
+  try {
+    return require.resolve('@overpod/mcp-telegram');
+  } catch {
+    // fall through
+  }
+
+  // Legacy hardcoded paths (npm v6 / flat mode / pnpm)
+  const candidates = [
+    path.join(__dirname, 'node_modules', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
+    path.join(__dirname, '..', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
+    path.join(__dirname, '..', '..', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
+    path.join(__dirname, 'node_modules', '.pnpm', '@overpod+mcp-telegram@*', 'node_modules', '@overpod', 'mcp-telegram', 'dist', 'index.js'),
+  ];
+  for (const p of candidates) {
+    try {
+      // eslint-disable-next-line no-unused-expressions
+      (await import('node:fs')).statSync(p);
+      return p;
+    } catch {
+      // continue
+    }
+  }
+
+  console.error('ERROR: Cannot find @overpod/mcp-telegram package. Is it installed?');
+  process.exit(1);
+}
+
+const telegramEntry = resolveOverpodEntry();
 
 const child = spawn(process.execPath, [telegramEntry], {
   env: { ...process.env, MCP_TELEGRAM_DAEMON: '0' },
